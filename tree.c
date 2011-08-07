@@ -44,6 +44,32 @@ static inline Node *_newNode(int type, int size)
 
 #define newNode(T)	_newNode(T, sizeof(struct T))
 
+void freeNode(Node *node)
+{
+  if (!node) return;
+  switch (node->type)
+  {
+  case Rule:
+    free(node->rule.name);
+    break;
+
+  case Character:
+    free(node->character.value);
+    break;
+
+  case String:
+    free(node->string.value);
+    break;
+
+  case Class:
+    free(node->cclass.value);
+    free(node->cclass.bits);
+    break;
+  }
+  free(node);
+}
+
+
 Node *makeRule(char *name)
 {
   Node *node= newNode(Rule);

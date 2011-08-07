@@ -75,6 +75,8 @@ extern int   ruleCount;
 
 extern FILE *output;
 
+void freeNode(Node *node);
+
 extern Node *makeRule(char *name);
 extern Node *findRule(char *name);
 extern Node *beginRule(Node *rule);
