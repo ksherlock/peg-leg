@@ -5,17 +5,18 @@ is considered to be a character class with 1 element for purposes of this optimi
 (because it is).
 
 Eg::
+  Rule <- "a" / "b" / "c" / [xyz] 
 
-Rule <- "a" / "b" / "c" / [xyz] 
-is equivalent to:
-Rule <- [abcxyz]
+is equivalent to::
+
+  Rule <- [abcxyz]
 
 2. Elimination of impossible-to-match alternate strings.  This is primarily to warn
 the user as well as to simplify for optimization 3.
 
 Eg::
 
-Rule <- "a" / "aa"
+  Rule <- "a" / "aa"
 
 "aa" can never match because "a" will match first.
 
@@ -24,28 +25,29 @@ Rule <- "a" / "aa"
 
 Eg::
 
-Rule <- "cat" / "dog" / "goat" / ...
+  Rule <- "cat" / "dog" / "goat" / ...
 
 is matched in order, requiring N string matches to fail.
 
 ::
 
-if (stringMatch("cat")) return 1;
-if (stringMatch("dog")) return 1;
-if (stringMatch("goat")) return 1;
-return 0;
+  if (stringMatch("cat")) return 1;
+  if (stringMatch("dog")) return 1;
+  if (stringMatch("goat")) return 1;
+  return 0;
 
 This can compiled into a switch table::
 
-switch (yybuf[yypos++])
-{
-case 'c': if (stringMatch("at")) return 1; else goto fail;
-case 'd': if (stringMatch("og")) return 1; else goto fail;
-case 'g': if (stringMatch("oat")) return 1; else goto fail;
-default:
-  goto fail;
-}
+  switch (yybuf[yypos++])  
+  {
+  case 'c': if (stringMatch("at")) return 1; else goto fail;
+  case 'd': if (stringMatch("og")) return 1; else goto fail;
+  case 'g': if (stringMatch("oat")) return 1; else goto fail;
+  default:
+    goto fail;
+  }
 
+Note than "cat" / "chicken" would generate a second switch table for a/t and h/icken.
 
 
 --- previous readme ---
