@@ -287,7 +287,7 @@ Node *makeString(char *text)
 Node *makeClass(char *text)
 {
   Node *node= newNode(Class);
-  node->cclass.value= (unsigned char *)strdup(text);
+  node->cclass.value= text ? (unsigned char *)strdup(text) : NULL;
   charClassMake(text, node->cclass.bits);
 
   return node;
