@@ -33,7 +33,7 @@ struct Name	 { int type;  Node *next;   Node *rule;  Node *variable;						};
 struct Dot	 { int type;  Node *next;										};
 struct Character { int type;  Node *next;   char *value;								};
 struct String	 { int type;  Node *next;   char *value;								};
-struct Class	 { int type;  Node *next;   unsigned char *value;							};
+struct Class	 { int type;  Node *next;   unsigned char *value; unsigned char bits[32];					};
 struct Action	 { int type;  Node *next;   char *text;	  Node *list;  char *name;  Node *rule;				};
 struct Predicate { int type;  Node *next;   char *text;									};
 struct Alternate { int type;  Node *next;   Node *first;  Node *last;							};

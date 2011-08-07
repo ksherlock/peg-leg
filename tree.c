@@ -22,6 +22,7 @@
 #include <assert.h>
 
 #include "tree.h"
+#include "set.h"
 
 Node *actions= 0;
 Node *rules= 0;
@@ -132,6 +133,8 @@ Node *makeClass(char *text)
 {
   Node *node= newNode(Class);
   node->cclass.value= (unsigned char *)strdup(text);
+  charClassMake(text, node->cclass.bits);
+
   return node;
 }
 

@@ -23,6 +23,7 @@
 
 #include "version.h"
 #include "tree.h"
+#include "set.h"
 
 static int yyl(void)
 {
@@ -30,64 +31,6 @@ static int yyl(void)
   return ++prev;
 }
 
-static void charClassSet  (unsigned char bits[], int c)	{ bits[c >> 3] |=  (1 << (c & 7)); }
-static void charClassClear(unsigned char bits[], int c)	{ bits[c >> 3] &= ~(1 << (c & 7)); }
-
-typedef void (*setter)(unsigned char bits[], int c);
-
-static char *makeCharClass(unsigned char *cclass)
-{
-  unsigned char	 bits[32];
-  setter	 set;
-  int		 c, prev= -1;
-  static char	 string[256];
-  char		*ptr;
-
-  if ('^' == *cclass)
-    {
-      memset(bits, 255, 32);
-      set= charClassClear;
-      ++cclass;
-    }
-  else
-    {
-      memset(bits, 0, 32);
-      set= charClassSet;
-    }
-  while ((c= *cclass++))
-    {
-      if ('-' == c && *cclass && prev >= 0)
-	{
-	  for (c= *cclass++;  prev <= c;  ++prev)
-	    set(bits, prev);
-	  prev= -1;
-	}
-      else if ('\\' == c && *cclass)
-	{
-	  switch (c= *cclass++)
-	    {
-	    case 'a':  c= '\a'; break;	/* bel */
-	    case 'b':  c= '\b'; break;	/* bs */
-	    case 'e':  c= '\e'; break;	/* esc */
-	    case 'f':  c= '\f'; break;	/* ff */
-	    case 'n':  c= '\n'; break;	/* nl */
-	    case 'r':  c= '\r'; break;	/* cr */
-	    case 't':  c= '\t'; break;	/* ht */
-	    case 'v':  c= '\v'; break;	/* vt */
-	    default:		break;
-	    }
-	  set(bits, prev= c);
-	}
-      else
-	set(bits, prev= c);
-    }
-
-  ptr= string;
-  for (c= 0;  c < 32;  ++c)
-    ptr += sprintf(ptr, "\\%03o", bits[c]);
-
-  return string;
-}
 
 static void begin(void)		{ fprintf(output, "\n  {"); }
 static void end(void)		{ fprintf(output, "\n  }"); }
@@ -128,7 +71,8 @@ static void Node_compile_c_ko(Node *node, int ko)
       break;
 
     case Class:
-      fprintf(output, "  if (!yymatchClass((unsigned char *)\"%s\")) goto l%d;", makeCharClass(node->cclass.value), ko);
+      fprintf(output, "  if (!yymatchClass((unsigned char *)\"%s\")) goto l%d;", 
+        charClassToString(node->cclass.bits), ko);
       break;
 
     case Action:
