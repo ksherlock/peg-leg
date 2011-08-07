@@ -5,6 +5,7 @@ is considered to be a character class with 1 element for purposes of this optimi
 (because it is).
 
 Eg::
+
   Rule <- "a" / "b" / "c" / [xyz] 
 
 is equivalent to::
