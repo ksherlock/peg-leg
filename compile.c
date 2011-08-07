@@ -24,6 +24,7 @@
 #include "version.h"
 #include "tree.h"
 #include "set.h"
+#include "optimize.h"
 
 static int yyl(void)
 {
@@ -599,6 +600,9 @@ int consumesInput(Node *node)
 void Rule_compile_c(Node *node)
 {
   Node *n;
+
+  for (n= rules;  n;  n= n->rule.next)
+    optimize(n);
 
   for (n= rules;  n;  n= n->rule.next)
     consumesInput(n);

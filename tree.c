@@ -63,7 +63,6 @@ void freeNode(Node *node)
 
   case Class:
     free(node->cclass.value);
-    free(node->cclass.bits);
     break;
   }
   free(node);
