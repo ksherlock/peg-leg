@@ -4,7 +4,8 @@ This fork contains some matching optimizations, where safe.  Specifically:
 is considered to be a character class with 1 element for purposes of this optimization
 (because it is).
 
-Eg: 
+Eg::
+
 Rule <- "a" / "b" / "c" / [xyz] 
 is equivalent to:
 Rule <- [abcxyz]
@@ -12,26 +13,29 @@ Rule <- [abcxyz]
 2. Elimination of impossible-to-match alternate strings.  This is primarily to warn
 the user as well as to simplify for optimization 3.
 
-Eg:
+Eg::
 
 Rule <- "a" / "aa"
+
 "aa" can never match because "a" will match first.
 
 
 3. switch-based alternate string matches
 
-Eg:
+Eg::
 
 Rule <- "cat" / "dog" / "goat" / ...
 
 is matched in order, requiring N string matches to fail.
+
+::
 
 if (stringMatch("cat")) return 1;
 if (stringMatch("dog")) return 1;
 if (stringMatch("goat")) return 1;
 return 0;
 
-This can compiled into a switch table:
+This can compiled into a switch table::
 
 switch (yybuf[yypos++])
 {
