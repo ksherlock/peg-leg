@@ -82,23 +82,28 @@ static void Node_compile_c_ko(Node *node, int ko)
       break;
 
     case Alternate:
-      {
-	int ok= yyl();
-	begin();
-	save(ok);
-	for (node= node->alternate.first;  node;  node= node->alternate.next)
-	  if (node->alternate.next)
-	    {
-	      int next= yyl();
-	      Node_compile_c_ko(node, next);
-	      jump(ok);
-	      label(next);
-	      restore(ok);
-	    }
-	  else
-	    Node_compile_c_ko(node, ko);
-	end();
-	label(ok);
+    if (node->alternate.first == node->alternate.last)
+    {
+      Node_compile_c_ko(node->alternate.first, ko);
+    }
+    else
+    {
+      int ok= yyl();
+      begin();
+      save(ok);
+      for (node= node->alternate.first;  node;  node= node->alternate.next)
+        if (node->alternate.next)
+          {
+            int next= yyl();
+            Node_compile_c_ko(node, next);
+            jump(ok);
+            label(next);
+            restore(ok);
+          }
+        else
+          Node_compile_c_ko(node, ko);
+        end();
+        label(ok);
       }
       break;
 
