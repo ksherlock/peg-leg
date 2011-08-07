@@ -115,17 +115,147 @@ Node *makeDot(void)
   return newNode(Dot);
 }
 
+/*
 Node *makeCharacter(char *text)
 {
   Node *node= newNode(Character);
   node->character.value= strdup(text);
   return node;
 }
+*/
+
+/*
+ * return 1 if the string is a single-character
+ * (handles escape characters)
+ */
+static int isSingleCharString(const char *cp, char *value)
+{
+    unsigned char c;
+    unsigned char xval = 0;
+    if (!cp || !*cp) return 0;
+    
+    c = *cp++;
+    if (c != '\\')
+    {
+        xval = c;
+    }
+    else
+    {
+        int st;
+        int xval = 0;
+        
+        for (st = 1 ; st ;)
+        {
+            c = *cp;
+            if (st == 1)
+            {
+                switch (c)
+                {
+                case '0':
+                case '1':
+                case '2':
+                case '3':
+                case '4':
+                case '5':
+                case '6':
+                case '7':
+                    xval = c - '0';
+                    st = 2;
+                    break;
+                    
+                case 'a':
+                    xval = '\a';
+                    st = 0;
+                    break;
+                case 'b':
+                    xval = '\b';
+                    st = 0;
+                    break;
+                case 'e':
+                    xval = '\e';
+                    st = 0;
+                    break;
+                case 'f':
+                    xval = '\f';
+                    st = 0;
+                    break;
+                case 'n':
+                    xval = '\n';
+                    st = 0;
+                    break;
+                case 'r':
+                    xval = '\r';
+                    st = 0;
+                    break;                   
+                case 't':
+                    xval = '\t';
+                    st = 0;
+                    break;
+                case 'v':
+                    xval = '\v';
+                    st = 0;
+                    break;
+                default:
+                    // peg grammer requires character after \, so this can't be the end.
+                    xval = c;
+                    st = 0;
+                    break;
+                }
+                
+                cp++;
+                continue;
+            }
+            
+            if (st == 2)
+            {
+                // octal escape
+                if (c >= '0' && c <= '7')
+                {
+                    int tmp;
+                    
+                    tmp = (xval << 3) + c - '0';
+                    if (tmp < 256)
+                    {
+                        xval = tmp;
+                        ++cp;
+                        continue;
+                    }
+                }
+                
+                st = 0;
+                continue;
+            }
+        }
+    
+    }
+
+    
+    if (*cp == 0)
+    {
+        if (value) *value = xval;
+        return 1;
+    }
+
+    return 0;
+
+}
 
 Node *makeString(char *text)
 {
-  Node *node= newNode(String);
-  node->string.value= strdup(text);
+  Node *node;
+  char c;
+  
+  if (isSingleCharString(text, &c))
+  {
+    node = newNode(Character);
+    node->character.value = strdup(text);
+    node->character.cValue = c;
+  }
+  else
+  {
+    node = newNode(String);
+    node->string.value= strdup(text);
+  }
   return node;
 }
 

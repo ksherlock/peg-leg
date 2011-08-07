@@ -60,14 +60,11 @@ static void Node_compile_c_ko(Node *node, int ko)
       break;
 
     case Character:
+	  fprintf(output, "  if (!yymatchChar('%s')) goto l%d;", node->character.value, ko);
+	  break;
+	  
     case String:
-      {
-	int len= strlen(node->string.value);
-	if (1 == len || (2 == len && '\\' == node->string.value[0]))
-	  fprintf(output, "  if (!yymatchChar('%s')) goto l%d;", node->string.value, ko);
-	else
 	  fprintf(output, "  if (!yymatchString(\"%s\")) goto l%d;", node->string.value, ko);
-      }
       break;
 
     case Class:
@@ -561,7 +558,7 @@ int consumesInput(Node *node)
 
     case Dot:		return 1;
     case Name:		return consumesInput(node->name.rule);
-    case Character:
+    case Character: return 1;
     case String:	return strlen(node->string.value) > 0;
     case Class:		return 1;
     case Action:	return 0;
