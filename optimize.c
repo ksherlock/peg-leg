@@ -204,6 +204,132 @@ char *escape(const char *cp, int length)
   return str;
 }
 
+
+struct LNode {
+  struct LNode *next;
+  int length;
+  char *string;
+};
+
+void optimizeAlternateStrings(Node *node)
+{
+  struct LNode *table[256]; // hash by first character of string.
+  unsigned char bits[32];
+  Node *n;
+  Node *prevNode;
+  
+  int i;
+
+  assert(node);
+  assert(node->type == Alternate);
+
+  /*
+   * since alternates match in the order listed, a string cannot match
+   * if it is a super-string of a previous string.
+   * eg:
+   * "a" | "aa"
+   * (this is primarily to make conversion to a regex table easier)
+   */
+
+  memset(table, 0, sizeof(table));
+  memset(bits, 0, sizeof(bits));
+
+  prevNode = NULL;
+  for (n = node->alternate.first; n;)
+  {
+    Node *nextNode;
+    char *string;
+    struct LNode *ln;
+
+    int c;
+    int t;
+    int length;
+    int remove = 0;
+
+    t = n->type;
+    nextNode = n->any.next;
+    if (t == Class)
+    { 
+      charClassOr(bits, n->cclass.bits);
+      prevNode = n;
+      n = nextNode;
+      continue;
+    }
+
+    string = NULL;
+    length = 0;
+    if (t == Character) string = unescape(n->character.value, &length);
+    if (t == String) string = unescape(n->string.value, &length);
+
+    if (string == NULL) 
+    {
+      prevNode = n;
+      n = nextNode;
+      continue;
+    }
+
+    if (length == 0) c = 0; // empty string
+    else
+    {
+      c = string[0];
+      if (charClassIsSet(bits, c))
+        remove = 1;
+    }
+
+    // check all nodes looking for a substring.
+    if (!remove) for (ln = table[c]; ln; ln = ln->next)
+    {
+      if (ln->length <= length)
+      {
+        if (strncmp(ln->string, string, ln->length) == 0)
+        {
+          remove = 1;
+          break;
+        }
+      } 
+    }
+
+    if (remove)
+    {
+      fprintf(stderr, "Warning: ``%s'' can never be matched\n", n->string.value);
+      if (prevNode == NULL) node->alternate.first = nextNode; // should never happen.
+      else prevNode->any.next = nextNode;
+      freeNode(n);
+      free(string);
+
+      n = nextNode;
+    }
+    else
+    {
+      ln = (struct LNode *)malloc(sizeof(struct LNode));
+      ln->next = table[c];
+      ln->string = string;
+      ln->length = length;
+      table[c] = ln;
+      prevNode = n;
+      n = nextNode;
+      continue;
+    }
+  }
+  node->alternate.last = prevNode;
+ 
+  // free-up memory
+  for (i = 0; i < 256; ++i)
+  {
+    struct LNode *n;
+
+    n = table[i];
+    while (n)
+    {  
+      struct LNode *next = n->next;
+      free(n->string);
+      free(n);
+      n = next;
+    }
+  }
+
+}
+
 /*
  * combine [a] / [b] to [ab]
  * (characters are equivalent to a class of one)
@@ -295,31 +421,27 @@ void optimizeAlternateClass(Node *node)
 
 void optimize(Node *node)
 {
-  Node *n;
-  if (!node) return;
-
-  switch(node->type)
-  {
-  case Rule:
-    return optimize(node->rule.expression);
-    break;
-
-  case Sequence:
-      for (n = node->alternate.first; n; n = n->alternate.next)
-      {
+    Node *n;
+    if (!node) return;
+    
+    switch(node->type)
+    {
+    case Rule:
+        return optimize(node->rule.expression);
+        break;
+    
+    case Sequence:
+        for (n = node->alternate.first; n; n = n->alternate.next)
         optimize(n);
-      }
-      break;
-
-  case Alternate:
-      optimizeAlternateClass(node);
-
-      // now run through a second time, optimizing any children.
-      for (n = node->alternate.first; n; n = n->any.next);
-      {
-        optimize(n);
-      }
-      break;
-  }
+        break;
+    
+    case Alternate:
+        optimizeAlternateClass(node);
+        optimizeAlternateStrings(node);
+        // now run through a second time, optimizing any children.
+        for (n = node->alternate.first; n; n = n->any.next);
+            optimize(n);
+        break;
+    }
 
 }
