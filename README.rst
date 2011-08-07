@@ -1,6 +1,6 @@
 This fork contains some matching optimizations, where safe.  Specifically:
 
-1) Adjacent character class alternates are merged together.  A single-character string
+1. Adjacent character class alternates are merged together.  A single-character string
 is considered to be a character class with 1 element for purposes of this optimization
 (because it is).
 
@@ -12,7 +12,7 @@ is equivalent to::
 
   Rule <- [abcxyz]
 
-2) Elimination of impossible-to-match alternate strings.  This is primarily to warn
+2. Elimination of impossible-to-match alternate strings.  This is primarily to warn
 the user as well as to simplify for optimization 3.
 
 Eg::
@@ -21,8 +21,7 @@ Eg::
 
 "aa" can never match because "a" will match first.
 
-
-3) switch-based alternate string matches
+3. switch-based alternate string matches
 
 Eg::
 
