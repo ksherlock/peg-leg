@@ -22,7 +22,8 @@ enum
 {
     Unknown =
         0, Rule, Variable, Name, Dot, Character, String, Class, Action,
-        Predicate, Alternate, Sequence, PeekFor, PeekNot, Query, Star, Plus
+        Predicate, Alternate, Sequence, PeekFor, PeekNot, Query, Star, Plus,
+        StringTable
 };
 
 enum
@@ -30,6 +31,20 @@ enum
     RuleUsed = 1 << 0,
     RuleReached = 1 << 1,
 };
+
+struct StringArrayString {
+  int length;
+  char *string;
+};
+
+struct StringArray {
+  struct StringArray *next;
+  int label;
+  int count;
+  struct StringArrayString strings[0];
+};
+
+
 
 typedef union Node Node;
 
@@ -158,6 +173,14 @@ struct Plus
     Node *element;
 };
 
+struct StringTable
+{
+    int type;  Node *next;   
+    unsigned char *bits; 
+    struct StringArray value;
+};
+
+
 struct Any
 {
     int type;
@@ -184,6 +207,7 @@ union Node
     struct Star star;
     struct Plus plus;
     struct Any any;
+    struct StringTable table;
 };
 
 extern Node *actions;
@@ -240,6 +264,8 @@ extern Node *makeQuery(Node * e);
 extern Node *makeStar(Node * e);
 
 extern Node *makePlus(Node * e);
+
+extern Node *makeStringTable(int count);
 
 extern Node *push(Node * node);
 

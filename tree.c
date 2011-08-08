@@ -242,7 +242,7 @@ static int isSingleCharString(const char *cp, char *value)
                 default:
 
                     /*
-                     * peg grammer requires character after \, so this can 't
+                     * peg grammer requires character after \, so this can't
                      * be the end. 
                      */
                     xval = c;
@@ -437,6 +437,17 @@ Node *makePlus(Node * e)
     Node *node = newNode(Plus);
 
     node->plus.element = e;
+    return node;
+}
+
+Node *makeStringTable(int count)
+{
+    Node *node =
+        _newNode(StringTable,
+                 sizeof(struct StringTable) +
+                 count * sizeof(struct StringArrayString));
+
+    node->table.value.count = count;
     return node;
 }
 

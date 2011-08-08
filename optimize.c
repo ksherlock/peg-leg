@@ -506,6 +506,132 @@ void optimizeAlternateClass(Node * node)
 
 }
 
+/*
+ * convert adjacents strings (or characters or classes) into a string table 
+ *
+ */
+static int min(int a, int b)
+{
+    return a < b ? a : b;
+}
+
+int STcompare(const void *a, const void *b)
+{
+    struct StringArrayString *A = (struct StringArrayString *)a;
+
+    struct StringArrayString *B = (struct StringArrayString *)b;
+
+    int rv;
+
+    rv = memcmp(A->string, B->string, min(A->length, B->length));
+
+    if (rv == 0)
+        rv = A->length - B->length;
+    // if A < B if length(A) < length(B)
+
+    return rv;
+}
+
+/*
+ * duplicates must be removed first 
+ */
+void optimizeAlternateStringTable(Node * node)
+{
+    Node *st;
+
+    unsigned char bits[32];
+
+    unsigned count = 0;
+
+    Node *n;
+
+    int hasCC = 0;
+
+    // for now, only kick in if all children are strings, characters, or
+    // ranges.
+
+    assert(node);
+    assert(node->type == Alternate);
+
+    memset(bits, 0, sizeof(bits));
+
+    for (n = node->alternate.first; n; n = n->any.next)
+    {
+        int t = n->type;
+
+        if (t == Class)
+        {
+            charClassOr(bits, n->cclass.bits);
+            ++hasCC;
+            continue;
+        }
+        if (t == Character)
+        {
+            ++hasCC;
+            charClassSet(bits, n->character.cValue);
+            continue;
+        }
+
+        if (t == String)
+        {
+            ++count;
+            continue;
+        }
+
+        return;
+    }
+
+    if (!count)
+        return;
+    if (count + hasCC < 2)
+        return;
+
+    st = makeStringTable(count);
+    if (hasCC)
+    {
+        st->table.bits = (unsigned char *)malloc(32 * sizeof(char));
+        memcpy(st->table.bits, bits, 32);
+    }
+
+    count = 0;
+    for (n = node->alternate.first; n; n = n->any.next)
+    {
+        char *string;
+
+        int length;
+
+        int t = n->type;
+
+        if (t != String)
+            continue;
+
+        string = unescape(n->string.value, &length);
+        st->table.value.strings[count].length = length;
+        st->table.value.strings[count].string = string;
+        count++;
+    }
+
+    // now sort...
+    qsort(st->table.value.strings, count, sizeof(struct StringArrayString),
+          STcompare);
+
+    // insert it...
+    n = node->alternate.first;
+    while (n)
+    {
+        Node *next = n->any.next;
+
+        freeNode(n);
+        n = next;
+    }
+
+    node->alternate.first = st;
+    node->alternate.last = st;
+}
+
+
+
+
 void optimize(Node * node)
 {
     Node *n;
@@ -527,6 +653,8 @@ void optimize(Node * node)
     case Alternate:
         optimizeAlternateClass(node);
         optimizeAlternateStrings(node);
+        optimizeAlternateStringTable(node);
+
         // now run through a second time, optimizing any children.
         for (n = node->alternate.first; n; n = n->any.next)
             optimize(n);

@@ -20,6 +20,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include <ctype.h>
 
 #include "version.h"
 #include "tree.h"
@@ -63,6 +64,230 @@ static void restore(int n)
 {
     fprintf(output, "  yypos= yypos%d; yythunkpos= yythunkpos%d;", n, n);
 }
+
+
+void StringTable_compile_c_ok(Node * node, int ko)
+{
+    extern char *escape(const char *cp, int length);
+
+    extern int STcompare(const void *, const void *);
+
+    unsigned char *bits;
+
+    struct StringArray *entry;
+
+    struct StringArray *last;
+
+    int re_fail, re_done;
+
+    assert(node);
+    assert(node->type == StringTable);
+
+    // only first entry can have character class
+    bits = node->table.bits;
+    last = entry = &node->table.value;
+
+
+    /*
+     * first entry could have a character class, too.
+     *
+     * generate something like:
+     *
+     * if (!yyrefill()) return 0;
+     * switch(yybuf[yypos++])
+     * { 
+     *    case 'a': yyrmarker = yypos; yyraccept = 1; goto re_yy_%d;
+     *    case 'b': goto re_yy_%d
+     *    default: goto yy_fail%d;
+     *  }
+     */
+
+    re_fail = yyl();
+    re_done = yyl();
+
+
+    // TODO -- verify - 
+    // yythunkpos will never be updated within this code, 
+    // so it doesn't need to be saved
+
+    begin();
+    fprintf(output, "\n  int yyrmarker = yypos, yyraccept = 0;\n");
+
+    while (entry)
+    {
+        struct StringArray *nextEntry;
+
+        int acceptDefault = 0;
+
+        int count = entry->count;
+
+        struct StringArrayString *iter;
+
+        iter = entry->strings;
+
+        if (entry->label)
+            label(entry->label);
+        fprintf(output, "\n  if (yypos >= yylimit && !yyrefill())");
+        jump(re_fail);
+        fprintf(output, "\n  switch(yybuf[yypos++])");
+        begin();                // {
+        fprintf(output, "\n");
+
+        while (count)
+        {
+            int i;
+
+            int length = iter->length;
+
+            char c = iter->string[0];
+
+            if (length == 0)
+            {
+                // empty string -- handle w/ default case.
+                acceptDefault = 1;
+                iter++;
+                count--;
+                continue;
+            }
+
+            if ((c & 0x80) == 0 && isalnum(c))
+                fprintf(output, "  case '%c':\n", c);
+            else
+                fprintf(output, "  case 0x%02x:\n", c);
+
+
+            // if bits & bit is set, then accept current state.
+            if (bits && charClassIsSet(bits, c))
+            {
+                fprintf(output, "    yyrmarker=yypos; yyraccept=1;");
+                charClassClear(bits, c);
+            }
+
+            // count up how many strings have the same character.
+            // if only 1, just do a string match.
+            // if > 1, generate a new STableEntry and push it for later.
+
+            for (i = 1; i < count; ++i)
+            {
+                if (iter[i].length < 1 || iter[i].string[0] != c)
+                    break;
+            }
+
+            if (i == 1)
+            {
+                // only 1 string, so it can be matched here 
+                // (either accept if it's 1 char or do a string match)
+                if (length == 1)
+                {
+                    jump(re_done);
+                    fputc('\n', output);
+                }
+                else
+                {
+                    char *s = escape(iter->string + 1, length - 1);
+
+                    fprintf(output, "    if (yymatchString(\"%s\"))", s);
+                    jump(re_done);
+                    jump(re_fail);
+                    fputc('\n', output);
+                    free(s);
+                }
+
+                iter++;
+                count--;
+                continue;
+            }
+            else
+            {
+                // TODO -- check for common substring, use yystringmatch
+                // instead of multiple switches
+                // eg "good" / "goodbye" -> "g" -> "ood" -> "bye"
+                struct StringArray *e;
+
+                e = (struct StringArray *)calloc(sizeof(struct StringArray) +
+                                                 i *
+                                                 sizeof(struct
+                                                        StringArrayString), 1);
+                e->count = i;
+                e->label = yyl();
+                i = 0;
+                while (count && iter->string[0] == c)
+                {
+                    e->strings[i].length = iter->length - 1;
+                    e->strings[i].string = iter->string + 1;
+                    ++i;
+                    --count;
+                    ++iter;
+                }
+                // sort.
+                qsort(e->strings, i, sizeof(struct StringArrayString),
+                      STcompare);
+                last->next = e;
+                last = e;
+
+                jump(e->label);
+                fputc('\n', output);
+            }
+
+
+        }
+        if (bits)
+        {
+            int c;
+
+            int hasCC;
+
+            // character class mapping.  Any common characters
+            // were handled (and cleared) above.
+
+            for (c = 0; c < 256; ++c)
+            {
+                if (charClassIsSet(bits, c))
+                {
+                    hasCC = 1;
+                    if ((c & 0x80) == 0 && isalnum(c))
+                        fprintf(output, "  case '%c':\n", c);
+                    else
+                        fprintf(output, "  case 0x%02x:\n", c);
+
+                }
+            }
+            if (hasCC)
+            {
+                fprintf(output, "    ");
+                jump(re_done);
+                fputc('\n', output);
+            }
+
+            bits = NULL;
+        }
+
+        fprintf(output, "  default:");
+        jump(acceptDefault ? re_done : re_fail);
+        end();                  // }
+
+        // dealloc (if we allocated it)
+        nextEntry = entry->next;
+
+        if (entry != &node->table.value)
+            free(entry);
+
+        entry = nextEntry;
+    }
+
+
+    label(re_fail);
+    fprintf(output, "  if (!yyraccept)");
+    jump(ko);
+    fprintf(output, "  yypos=yyrmarker;\n");
+    label(re_done);
+    end();                      // } 
+
+
+    // dealloc... 
+
+}
+
 
 static void Node_compile_c_ko(Node * node, int ko)
 {
@@ -215,6 +440,11 @@ static void Node_compile_c_ko(Node * node, int ko)
         restore(out);
         end();
     }
+        break;
+
+
+    case StringTable:
+        StringTable_compile_c_ok(node, ko);
         break;
 
     default:
@@ -664,6 +894,9 @@ int consumesInput(Node * node)
         return 0;
     case Plus:
         return consumesInput(node->plus.element);
+
+    case StringTable:
+        return 1;
 
     default:
         fprintf(stderr, "\nconsumesInput: illegal node type %d\n", node->type);
