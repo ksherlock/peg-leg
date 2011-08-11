@@ -291,7 +291,11 @@ void optimizeAlternateStrings(Node * node)
      * if it is a super-string of a previous string.
      * eg:
      * "a" | "aa"
-     * (this is primarily to make conversion to a regex table easier)
+     *
+     * This has two functions:
+     * 1. identifying errors
+     * 2. making table conversion easier.
+     *
      */
 
     memset(table, 0, sizeof(table));
@@ -323,6 +327,16 @@ void optimizeAlternateStrings(Node * node)
             n = nextNode;
             continue;
         }
+        
+        if (t == Dot)
+        {
+            // dot = character class of everything.
+            // (probably an error if anything comes afterwards)
+            memset(bits, 0xff, sizeof(bits));
+            prevNode = n;
+            n = nextNode;
+            continue;
+        }
 
         string = NULL;
         length = 0;
@@ -346,6 +360,12 @@ void optimizeAlternateStrings(Node * node)
             c = string[0];
             if (charClassIsSet(bits, c))
                 remove = 1;
+        }
+        
+        // faster lookup by putting character in the class.
+        if (t == Character)
+        {
+            charClassSet(bits, n->character.cValue);
         }
 
         // check all nodes looking for a substring.
@@ -630,7 +650,15 @@ void optimizeAlternateStringTable(Node * node)
 }
 
 
-
+// todo -- add a simplification phase
+// eg Node *simplify(Node *node) 
+// returns NULL (to delete), node (if unchanged) or new Node
+// called to simplify list elements
+// eg:
+// alternate with no entries -> NULL
+// alternate with one entry -> child entry
+// single char string -> character
+// full class -> dot
 
 void optimize(Node * node)
 {
@@ -651,6 +679,9 @@ void optimize(Node * node)
         break;
 
     case Alternate:
+        // todo -- pass in/return a pair of start/end nodes
+        // to simplify the insertion/removal logic
+        
         optimizeAlternateClass(node);
         optimizeAlternateStrings(node);
         optimizeAlternateStringTable(node);
