@@ -69,13 +69,12 @@ static void restore(int n)
 void StringTable_compile_c_ok(Node * node, int ko)
 {
     extern char *escape(const char *cp, int length);
+    //extern int STcompare(const void *, const void *);
+    extern void STsort(struct StringArray *array);
 
-    extern int STcompare(const void *, const void *);
 
     unsigned char *bits;
-
     struct StringArray *entry;
-
     struct StringArray *last;
 
     int re_fail, re_done;
@@ -106,49 +105,50 @@ void StringTable_compile_c_ok(Node * node, int ko)
     re_done = yyl();
 
 
-    // TODO -- verify - 
     // yythunkpos will never be updated within this code, 
     // so it doesn't need to be saved
-
+    
+    // TODO -- case-insensitive option.
+    
     begin();
-    fprintf(output, "\n  int yyrmarker = yypos, yyraccept = 0;\n");
-
+    // empty strings match w/o any input.
+    fprintf(output, "\n  int yyrmarker = yypos, yyraccept = %d;\n", node->table.emptyString);
+    
     while (entry)
     {
         struct StringArray *nextEntry;
 
-        int acceptDefault = 0;
-
         int count = entry->count;
+        int offset = entry->offset;
 
-        struct StringArrayString *iter;
-
-        iter = entry->strings;
+        int i, j;
 
         if (entry->label)
             label(entry->label);
+            
         fprintf(output, "\n  if (yypos >= yylimit && !yyrefill())");
         jump(re_fail);
+        
         fprintf(output, "\n  switch(yybuf[yypos++])");
         begin();                // {
         fprintf(output, "\n");
 
-        while (count)
+        for (i = 0; i < count; )
         {
-            int i;
+           
+            char *string;
 
-            int length = iter->length;
+            int length;
+            char c;
 
-            char c = iter->string[0];
+            string = entry->strings[i]->string;
+            length = entry->strings[i]->length - offset;
+            
+            c = string[offset];
 
-            if (length == 0)
-            {
-                // empty string -- handle w/ default case.
-                acceptDefault = 1;
-                iter++;
-                count--;
-                continue;
-            }
+            // length should never be 0.
+            assert(length != 0);
+            
 
             if ((c & 0x80) == 0 && isalnum(c))
                 fprintf(output, "  case '%c':\n", c);
@@ -165,15 +165,21 @@ void StringTable_compile_c_ok(Node * node, int ko)
 
             // count up how many strings have the same character.
             // if only 1, just do a string match.
-            // if > 1, generate a new STableEntry and push it for later.
-
-            for (i = 1; i < count; ++i)
+            // if > 1, generate a new entry and push it for later.
+            
+            // since these are sorted, only the first entry can have a length of 1.
+            // (and longest match wins since they preceeded shorter matches or were optimized out)
+            for (j = i + 1; j < count; ++j)
             {
-                if (iter[i].length < 1 || iter[i].string[0] != c)
-                    break;
+                struct RawString *rs = entry->strings[j];
+                int length = rs->length - offset;
+                if (length < 1) break; 
+                if (rs->string[offset] != c) break;
             }
-
-            if (i == 1)
+            // j is 1 greater than the last index.
+            j -= i; // convert to count (1-based)
+            
+            if (j == 1)
             {
                 // only 1 string, so it can be matched here 
                 // (either accept if it's 1 char or do a string match)
@@ -184,7 +190,7 @@ void StringTable_compile_c_ok(Node * node, int ko)
                 }
                 else
                 {
-                    char *s = escape(iter->string + 1, length - 1);
+                    char *s = escape(string + offset + 1, length - 1);
 
                     fprintf(output, "    if (yymatchString(\"%s\"))", s);
                     jump(re_done);
@@ -193,8 +199,7 @@ void StringTable_compile_c_ok(Node * node, int ko)
                     free(s);
                 }
 
-                iter++;
-                count--;
+                i++;
                 continue;
             }
             else
@@ -202,26 +207,36 @@ void StringTable_compile_c_ok(Node * node, int ko)
                 // TODO -- check for common substring, use yystringmatch
                 // instead of multiple switches
                 // eg "good" / "goodbye" -> "g" -> "ood" -> "bye"
-                struct StringArray *e;
+                struct StringArray *e;                
 
-                e = (struct StringArray *)calloc(sizeof(struct StringArray) +
-                                                 i *
-                                                 sizeof(struct
-                                                        StringArrayString), 1);
-                e->count = i;
-                e->label = yyl();
-                i = 0;
-                while (count && iter->string[0] == c)
+                if (length == 1)
                 {
-                    e->strings[i].length = iter->length - 1;
-                    e->strings[i].string = iter->string + 1;
-                    ++i;
-                    --count;
-                    ++iter;
+                    // single character, can be accepted now, don't need to pass
+                    // to next level.
+                    fprintf(output, "    yyrmarker=yypos; yyraccept=1;\n");
+
+                    i++;
+                    j--;
                 }
+
+                e = (struct StringArray *)calloc(sizeof(struct StringArray) + j * sizeof(struct RawString *), 1);
+                e->count = j;
+                e->offset = offset + 1;
+                e->label = yyl();
+                
+
+                // these are stored backwards, but no matter
+                // since they'll be sorted and there's no
+                // reason to believe either way is faster.                
+                while (j)
+                {
+                    e->strings[--j] = entry->strings[i++];
+                }
+
                 // sort.
-                qsort(e->strings, i, sizeof(struct StringArrayString),
-                      STcompare);
+                
+                STsort(e);
+
                 last->next = e;
                 last = e;
 
@@ -263,7 +278,7 @@ void StringTable_compile_c_ok(Node * node, int ko)
         }
 
         fprintf(output, "  default:");
-        jump(acceptDefault ? re_done : re_fail);
+        jump(re_fail);
         end();                  // }
 
         // dealloc (if we allocated it)

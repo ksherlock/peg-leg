@@ -20,6 +20,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include <ctype.h>
 
 #include "tree.h"
 #include "set.h"
@@ -52,6 +53,7 @@ static inline Node *_newNode(int type, int size)
 
 void freeNode(Node * node)
 {
+    
     if (!node)
         return;
     switch (node->type)
@@ -66,14 +68,170 @@ void freeNode(Node * node)
 
     case String:
         free(node->string.value);
+        free(node->string.rawString);
         break;
 
     case Class:
         free(node->cclass.value);
         break;
+        
+    case StringTable:
+        {
+            int i;
+            for (i = 0; i < node->table.value.count; ++i)
+            {
+                free(node->table.value.strings[i]);
+            }
+        }
+        break;
+        
     }
     free(node);
 }
+
+
+struct RawString *unescape(const char *cp)
+{
+    struct RawString *out;
+
+    int l;
+
+    int st = 0;
+
+    int xval = 0;
+
+    char c;
+
+    l = strlen(cp);
+    out = (struct RawString *)malloc(sizeof(struct RawString) + l + 1);
+    l = 0;
+
+    while ((c = *cp++))
+    {
+
+        if (st == 1)
+        {
+            // after escape.
+            st = 0;
+            switch (c)
+            {
+            case '0':
+            case '1':
+            case '2':
+            case '3':
+            case '4':
+            case '5':
+            case '6':
+            case '7':
+                st = 2;
+                // octal escape
+                xval = c - '0';
+                break;
+            case 'x':
+                // hex escape
+                st = 3;
+                xval = 0;
+                break;
+            case 'a':
+                out->string[l++] = '\a';
+                break;
+            case 'b':
+                out->string[l++] = '\b';
+                break;
+            case 'e':
+                out->string[l++] = '\e';
+                break;
+            case 'f':
+                out->string[l++] = '\f';
+                break;
+            case 'n':
+                out->string[l++] = '\n';
+                break;
+            case 'r':
+                out->string[l++] = '\r';
+                break;
+            case 't':
+                out->string[l++] = '\t';
+                break;
+            case 'v':
+                out->string[l++] = '\v';
+                break;
+
+            default:
+                out->string[l++] = c;
+                break;
+            }
+            continue;
+        }
+
+        if (st == 2)
+        {
+            // octal escape.
+            if (c >= '0' && c <= '7')
+            {
+                int tmp;
+
+                tmp = (xval << 3) + c - '0';
+                if (tmp <= 255)
+                {
+                    xval = tmp;
+                    continue;
+                }
+            }
+            out->string[l++] = xval;
+            st = 0;
+            // drop through.
+        }
+
+        if (st == 3)
+        {
+            // hex escape.
+            if (isxdigit(c))
+            {
+                int tmp;
+
+                tmp = xval << 4;
+                if (c >= '0' && c <= '9')
+                    tmp += c - '0';
+                else if (c >= 'a' && c <= 'f')
+                    tmp += c + 10 - 'a';
+                else if (c >= 'A' && c <= 'F')
+                    tmp += c + 10 - 'A';
+
+                if (xval <= 255)
+                {
+                    xval = tmp;
+                    continue;
+                }
+            }
+            out->string[l++] = xval;
+            st = 0;
+            // drop through.
+        }
+
+        if (st == 0)
+        {
+            if (c == '\\')
+                st = 1;
+            else
+                out->string[l++] = c;
+            continue;
+        }
+    }
+
+    if (st == 2 || st == 3)
+    {
+        //ends on octal/hex escape
+        out->string[l++] = xval;
+    }
+    out->string[l] = 0;
+    // nil terminate
+    out->length = l;
+
+    return out;
+}
+
+
 
 
 Node *makeRule(char *name)
@@ -159,152 +317,26 @@ Node *makeDot(void)
     return newNode(Dot);
 }
 
-/*
- * Node *makeCharacter(char *text) { Node *node= newNode(Character);
- * node->character.value= strdup(text); return node; } 
- */
-
-/*
- * return 1 if the string is a single-character
- * (handles escape characters)
- */
-static int isSingleCharString(const char *cp, char *value)
-{
-    unsigned char c;
-
-    unsigned char xval = 0;
-
-    if (!cp || !*cp)
-        return 0;
-
-    c = *cp++;
-    if (c != '\\')
-    {
-        xval = c;
-    }
-    else
-    {
-        int st;
-
-        int xval = 0;
-
-        for (st = 1; st;)
-        {
-            c = *cp;
-            if (st == 1)
-            {
-                switch (c)
-                {
-                case '0':
-                case '1':
-                case '2':
-                case '3':
-                case '4':
-                case '5':
-                case '6':
-                case '7':
-                    xval = c - '0';
-                    st = 2;
-                    break;
-
-                case 'a':
-                    xval = '\a';
-                    st = 0;
-                    break;
-                case 'b':
-                    xval = '\b';
-                    st = 0;
-                    break;
-                case 'e':
-                    xval = '\e';
-                    st = 0;
-                    break;
-                case 'f':
-                    xval = '\f';
-                    st = 0;
-                    break;
-                case 'n':
-                    xval = '\n';
-                    st = 0;
-                    break;
-                case 'r':
-                    xval = '\r';
-                    st = 0;
-                    break;
-                case 't':
-                    xval = '\t';
-                    st = 0;
-                    break;
-                case 'v':
-                    xval = '\v';
-                    st = 0;
-                    break;
-                default:
-
-                    /*
-                     * peg grammer requires character after \, so this can't
-                     * be the end. 
-                     */
-                    xval = c;
-                    st = 0;
-                    break;
-                }
-
-                cp++;
-                continue;
-            }
-
-            if (st == 2)
-            {
-                // octal escape
-                if (c >= '0' && c <= '7')
-                {
-                    int tmp;
-
-                    tmp = (xval << 3) + c - '0';
-                    if (tmp < 256)
-                    {
-                        xval = tmp;
-                        ++cp;
-                        continue;
-                    }
-                }
-
-                st = 0;
-                continue;
-            }
-        }
-
-    }
-
-
-    if (*cp == 0)
-    {
-        if (value)
-            *value = xval;
-        return 1;
-    }
-
-    return 0;
-
-}
-
 Node *makeString(char *text)
 {
     Node *node;
+    struct RawString *string;
+    
+    text = strdup(text);
+    string = unescape(text);
 
-    char c;
-
-    if (isSingleCharString(text, &c))
+    if (string->length == 1)
     {
         node = newNode(Character);
-        node->character.value = strdup(text);
-        node->character.cValue = c;
+        node->character.value = text;
+        node->character.cValue = string->string[0];
+        free(string);
     }
     else
     {
         node = newNode(String);
-        node->string.value = strdup(text);
+        node->string.value = text;
+        node->string.rawString = string;
     }
     return node;
 }
@@ -445,7 +477,7 @@ Node *makeStringTable(int count)
     Node *node =
         _newNode(StringTable,
                  sizeof(struct StringTable) +
-                 count * sizeof(struct StringArrayString));
+                 count * sizeof(struct RawString *));
 
     node->table.value.count = count;
     return node;

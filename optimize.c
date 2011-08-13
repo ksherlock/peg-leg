@@ -1,3 +1,8 @@
+
+#ifdef __linux
+#define __USE_GNU
+#endif
+
 #include <assert.h>
 #include <ctype.h>
 #include <stdlib.h>
@@ -14,146 +19,6 @@ void optimizeAlternate(Node * node);
 void optimizeAlternateStrings(Node * node);
 
 
-char *unescape(const char *cp, int *length)
-{
-    char *out;
-
-    int l;
-
-    int st = 0;
-
-    int xval = 0;
-
-    char c;
-
-    l = strlen(cp);
-    out = (char *)malloc(l + 1);
-    l = 0;
-
-    while ((c = *cp++))
-    {
-
-        if (st == 1)
-        {
-            // after escape.
-            st = 0;
-            switch (c)
-            {
-            case '0':
-            case '1':
-            case '2':
-            case '3':
-            case '4':
-            case '5':
-            case '6':
-            case '7':
-                st = 2;
-                // octal escape
-                xval = c - '0';
-                break;
-            case 'x':
-                // hex escape
-                st = 3;
-                xval = 0;
-                break;
-            case 'a':
-                out[l++] = '\a';
-                break;
-            case 'b':
-                out[l++] = '\b';
-                break;
-            case 'e':
-                out[l++] = '\e';
-                break;
-            case 'f':
-                out[l++] = '\f';
-                break;
-            case 'n':
-                out[l++] = '\n';
-                break;
-            case 'r':
-                out[l++] = '\r';
-                break;
-            case 't':
-                out[l++] = '\t';
-                break;
-            case 'v':
-                out[l++] = '\v';
-                break;
-
-            default:
-                out[l++] = c;
-                break;
-            }
-            continue;
-        }
-
-        if (st == 2)
-        {
-            // octal escape.
-            if (c >= '0' && c <= '7')
-            {
-                int tmp;
-
-                tmp = (xval << 3) + c - '0';
-                if (tmp <= 255)
-                {
-                    xval = tmp;
-                    continue;
-                }
-            }
-            out[l++] = xval;
-            st = 0;
-            // drop through.
-        }
-
-        if (st == 3)
-        {
-            // hex escape.
-            if (isxdigit(c))
-            {
-                int tmp;
-
-                tmp = xval << 4;
-                if (c >= '0' && c <= '9')
-                    tmp += c - '0';
-                else if (c >= 'a' && c <= 'f')
-                    tmp += c + 10 - 'a';
-                else if (c >= 'A' && c <= 'F')
-                    tmp += c + 10 - 'A';
-
-                if (xval <= 255)
-                {
-                    xval = tmp;
-                    continue;
-                }
-            }
-            out[l++] = xval;
-            st = 0;
-            // drop through.
-        }
-
-        if (st == 0)
-        {
-            if (c == '\\')
-                st = 1;
-            else
-                out[l++] = c;
-            continue;
-        }
-    }
-
-    if (st == 2 || st == 3)
-    {
-        out[l++] = xval;
-    }
-    out[l] = 0;
-    // nil terminate
-    if (length)
-        *length = l;
-
-    return out;
-}
 
 
 char *escape(const char *cp, int length)
@@ -266,22 +131,19 @@ char *escape(const char *cp, int length)
 struct LNode
 {
     struct LNode *next;
-    int length;
-    char *string;
+    struct RawString *string;
 };
 
 void optimizeAlternateStrings(Node * node)
 {
-    struct LNode *table[256];
-
-    // hash by first character of string.
+    struct LNode *table[256]; // hash by first character of string.
     unsigned char bits[32];
-
+    
     Node *n;
-
     Node *prevNode;
 
     int i;
+    int emptyString = 0;
 
     assert(node);
     assert(node->type == Alternate);
@@ -305,125 +167,140 @@ void optimizeAlternateStrings(Node * node)
     for (n = node->alternate.first; n;)
     {
         Node *nextNode;
-
-        char *string;
-
-        struct LNode *ln;
-
-        int c;
-
         int t;
-
-        int length;
-
         int remove = 0;
 
         t = n->type;
         nextNode = n->any.next;
-        if (t == Class)
-        {
-            charClassOr(bits, n->cclass.bits);
-            prevNode = n;
-            n = nextNode;
-            continue;
-        }
+
         
-        if (t == Dot)
+        remove = 0;
+
+        // todo -- if emptyString, these will all fail.
+
+        switch (t)
         {
+        
+        case Class:
+            charClassOr(bits, n->cclass.bits);
+            break;
+        
+        case Dot:     
+
             // dot = character class of everything.
             // (probably an error if anything comes afterwards)
             memset(bits, 0xff, sizeof(bits));
-            prevNode = n;
-            n = nextNode;
-            continue;
-        }
+            break;
 
-        string = NULL;
-        length = 0;
-        if (t == Character)
-            string = unescape(n->character.value, &length);
-        if (t == String)
-            string = unescape(n->string.value, &length);
-
-        if (string == NULL)
-        {
-            prevNode = n;
-            n = nextNode;
-            continue;
-        }
-
-        if (length == 0)
-            c = 0;
-        // empty string
-        else
-        {
-            c = string[0];
-            if (charClassIsSet(bits, c))
-                remove = 1;
-        }
-        
-        // faster lookup by putting character in the class.
-        if (t == Character)
-        {
-            charClassSet(bits, n->character.cValue);
-        }
-
-        // check all nodes looking for a substring.
-        if (!remove)
-        {
-            for (ln = table[c]; ln; ln = ln->next)
+        case Character:
             {
-                if (ln->length <= length)
+                char c;
+            
+                c = n->character.cValue;
+                
+                if (charClassIsSet(bits, c))
+                    remove = 1;
+                else
+                    charClassSet(bits, c);
+             }   
+             break;
+
+        case String:
+            {
+                struct RawString *string;
+                int c;
+                int length;
+    
+                /*
+                 * a string of length 0 will always match, 
+                 * so everything afterwards needs to be removed.
+                 * memcmp works fine, but the table is hashed by 
+                 * the first char, so we need to special case it.
+                 */
+    
+            
+                string = n->string.rawString;
+                length = string->length;
+    
+                if (length)
                 {
-                    if (memcmp(ln->string, string, ln->length) == 0)
-                    {
+                    c = string->string[0];
+                    if (charClassIsSet(bits, c))
                         remove = 1;
-                        break;
+                }
+                else
+                {
+                    c = 0;
+                    if (emptyString) remove = 1;
+                    emptyString = 1;
+                }
+                
+                if (length && !remove)
+                {
+                    // check previous strings to see if this one should be removed.
+                    struct LNode *ln;
+    
+                    for (ln = table[c]; ln; ln = ln->next)
+                    {
+                        if (ln->string->length <= length)
+                        {
+                            if (memcmp(ln->string->string, string->string, ln->string->length) == 0)
+                            {
+                                remove = 1;
+                                break;
+                            }
+                        }
                     }
                 }
+                    
+                    
+                // add it to the table.
+                if (!remove)
+                {
+                    struct LNode *ln;
+
+                    ln = (struct LNode *)malloc(sizeof(struct LNode));
+                    ln->next = table[c];
+                    ln->string = string;
+                    table[c] = ln;
+                }                
             }
+            break;
         }
+
         if (remove)
         {
-            fprintf(stderr, "Warning: ``%s'' can never be matched\n",
-                    n->string.value);
+            fprintf(stderr, "Warning: ``%s'' can never be matched\n", n->string.value);
             if (prevNode == NULL)
                 node->alternate.first = nextNode;
             // should never happen.
             else
                 prevNode->any.next = nextNode;
             freeNode(n);
-            free(string);
-
-            n = nextNode;
-        }
-        else
-        {
-            ln = (struct LNode *)malloc(sizeof(struct LNode));
-            ln->next = table[c];
-            ln->string = string;
-            ln->length = length;
-            table[c] = ln;
-            prevNode = n;
             n = nextNode;
             continue;
         }
+        
+
+        prevNode = n;
+        n = nextNode;
+        continue;
+
     }
     node->alternate.last = prevNode;
 
     // free - up memory
     for (i = 0; i < 256; ++i)
     {
-        struct LNode *n;
+        struct LNode *ln;
 
-        n = table[i];
-        while (n)
+        ln = table[i];
+        while (ln)
         {
-            struct LNode *next = n->next;
+            struct LNode *next = ln->next;
 
-            free(n->string);
-            free(n);
-            n = next;
+            free(ln);
+            ln = next;
         }
     }
 
@@ -451,6 +328,8 @@ void optimizeAlternateClass(Node * node)
     n = node->alternate.first;
     while (n)
     {
+        // TODO -- just set a remove current/remove next flag, one set of removal code @ bottom.
+        // TODO -- support for .
         nextNode = n->any.next;
 
         t1 = n->type;
@@ -535,6 +414,38 @@ static int min(int a, int b)
     return a < b ? a : b;
 }
 
+
+int STcompare_s(const void *a, const void *b, void *context)
+{
+    struct RawString *A = *(struct RawString **)a;
+    struct RawString *B = *(struct RawString **)b;
+    int offset = context ? *((const int *)context) : 0;
+
+    int rv;
+
+    rv = memcmp(A->string + offset, B->string + offset, min(A->length, B->length) - offset);
+
+    if (rv == 0)
+        rv = A->length - B->length;
+    // if A < B if length(A) < length(B)
+
+    return rv;
+}
+
+#if 0
+static int STcompare(const void *a, const void *b)
+{
+    return STcompare_s(a, b, 0);
+}
+#endif
+
+static int STcompare_s_backwards(void *context, const void *a, const void *b)
+{
+    return STcompare_s(a, b, context);
+}
+
+
+#if 0
 int STcompare(const void *a, const void *b)
 {
     struct StringArrayString *A = (struct StringArrayString *)a;
@@ -551,6 +462,33 @@ int STcompare(const void *a, const void *b)
 
     return rv;
 }
+#endif
+
+
+void STsort(struct StringArray *array)
+{
+    /*
+     * OS X has qsort_r
+     * GNU has qsort_r
+     * Microsoft has qsort_s
+     * C1x draft has qsort_s 
+     *
+     * All but apple take context as the final parameter.
+     * For the sort function, Microsoft and Apple take context as the first parameter,
+     * GNU and C1x take it as the last parameter.
+     *
+     * almost makes one yearn for c++ functors.
+     *
+     */
+    
+    #if defined __USE_GNU
+    qsort_r(array->strings, array->count, sizeof(struct RawString *), STcompare_s, &array->offset);
+    #elif defined __APPLE__
+    qsort_r(array->strings, array->count, sizeof(struct RawString *), &array->offset, STcompare_s_backwards);
+    #else
+    #error "qsort_r / qsort_s needed"
+    #endif
+}
 
 /*
  * duplicates must be removed first 
@@ -560,12 +498,11 @@ void optimizeAlternateStringTable(Node * node)
     Node *st;
 
     unsigned char bits[32];
-
-    unsigned count = 0;
-
     Node *n;
 
+    unsigned count = 0;
     int hasCC = 0;
+    int hasEmptyString = 0;
 
     // for now, only kick in if all children are strings, characters, or
     // ranges.
@@ -585,16 +522,28 @@ void optimizeAlternateStringTable(Node * node)
             ++hasCC;
             continue;
         }
+        
         if (t == Character)
         {
             ++hasCC;
             charClassSet(bits, n->character.cValue);
             continue;
         }
+        
+        if (t == Dot)
+        {
+            // todo -- separate flag since
+            // this could be handled as default?
+            ++hasCC;
+            memset(bits, 0xff, 32);
+            continue;
+        }
 
         if (t == String)
         {
-            ++count;
+            if (n->string.rawString->length == 0) hasEmptyString = 1;
+            else ++count;
+
             continue;
         }
 
@@ -613,28 +562,33 @@ void optimizeAlternateStringTable(Node * node)
         memcpy(st->table.bits, bits, 32);
     }
 
+    st->table.emptyString = hasEmptyString;
+    
     count = 0;
     for (n = node->alternate.first; n; n = n->any.next)
     {
-        char *string;
-
-        int length;
-
         int t = n->type;
 
         if (t != String)
             continue;
 
-        string = unescape(n->string.value, &length);
-        st->table.value.strings[count].length = length;
-        st->table.value.strings[count].string = string;
+        if (n->string.rawString->length == 0) continue;
+        
+        //string = unescape(n->string.value, &length);
+        st->table.value.strings[count] = n->string.rawString;
         count++;
+        
+        // prevent freeing.
+        n->string.rawString = NULL;
     }
 
-    // now sort...
-    qsort(st->table.value.strings, count, sizeof(struct StringArrayString),
-          STcompare);
 
+    STsort(&(st->table.value));
+    
+    // now sort...
+    //qsort(st->table.value.strings, count, sizeof(struct RawString *),
+    //      STcompare);
+    //
     // insert it...
     n = node->alternate.first;
     while (n)

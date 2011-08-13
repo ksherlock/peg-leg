@@ -32,21 +32,32 @@ enum
     RuleReached = 1 << 1,
 };
 
-struct StringArrayString {
-  int length;
-  char *string;
+
+struct RawString {
+    int length;
+    char string[0];
 };
+
 
 struct StringArray {
   struct StringArray *next;
   int label;
   int count;
-  struct StringArrayString strings[0];
+  int offset; // offset into the strings.
+  struct RawString *strings[0];
 };
 
 
 
 typedef union Node Node;
+
+struct NodePair
+{
+    Node *first;
+    Node *second;
+};
+
+typedef struct NodePair NodePair;
 
 struct Rule
 {
@@ -95,6 +106,7 @@ struct String
     int type;
     Node *next;
     char *value;
+    struct RawString *rawString;
 };
 
 struct Class
@@ -175,8 +187,10 @@ struct Plus
 
 struct StringTable
 {
-    int type;  Node *next;   
+    int type;  
+    Node *next;   
     unsigned char *bits; 
+    int emptyString;
     struct StringArray value;
 };
 
